@@ -1,0 +1,11 @@
+{
+  "_nota": "Copiá este archivo a data/ocupado.json. El título de abajo está a propósito: el programa lo tira y no se lo muestra a los clientes. Solo usa inicio y fin.",
+  "intervalos": [
+    {
+      "inicio": "2026-11-25T10:00:00-03:00",
+      "fin": "2026-11-25T11:00:00-03:00",
+      "titulo": "ESTE TITULO NO DEBE SALIR",
+      "detalle": "reunión privada con datos que el cliente no tiene que ver"
+    }
+  ]
+}
