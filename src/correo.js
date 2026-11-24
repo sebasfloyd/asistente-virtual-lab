@@ -161,6 +161,7 @@ export async function enviarMail(config, mensaje, { conectar = conectarDefault, 
     if (config.puerto !== 465 && /STARTTLS/i.test(ehlo.texto)) {
       await decir('STARTTLS', [220], 'el cifrado')
       lector.soltar()
+      socket.on?.('error', () => {})
       socket = await subir(socket, config.host)
       lector = crearLector(socket)
       ehlo = await decir('EHLO asistente.local', [250], 'el saludo')
@@ -188,6 +189,8 @@ export async function enviarMail(config, mensaje, { conectar = conectarDefault, 
     return { para: mensaje.para, cc }
   } finally {
     lector.soltar()
+    // Después de cortar, un ECONNRESET tardío no tiene que tumbar el asistente.
+    socket.on?.('error', () => {})
     socket.end?.()
     socket.destroy?.()
   }

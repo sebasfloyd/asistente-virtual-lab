@@ -131,6 +131,7 @@ function servidorSmtp({ rechazarLogin = false } = {}) {
   const server = net.createServer((sock) => {
     let enData = false
     let buffer = ''
+    sock.on('error', () => {})
     sock.write('220 prueba ESMTP\r\n')
     sock.on('data', (chunk) => {
       buffer += chunk.toString()
