@@ -123,7 +123,7 @@ test('/si manda el mail solo si hay conector, y /no no manda nada', async () => 
   const idMail = otra.estado.acciones.at(-1).id
   const si = await procesarMensaje(duenioTelegram(`/si ${idMail}`), otra.estado, sim.ctx)
   assert.equal(si.estado.acciones.length, 0)
-  assert.match(si.respuestas[0].texto, /no hay un conector de Gmail/)
+  assert.match(si.respuestas[0].texto, /no tengo cómo mandar mails/)
   const log = fs.readFileSync(sim.ctx.dirs.acciones, 'utf8')
   assert.match(log, /"tipo":"mail"/)
   assert.match(log, /"simulado":true/)
@@ -133,7 +133,7 @@ test('/si manda el mail solo si hay conector, y /no no manda nada', async () => 
   vivo.ctx.config.cerebro = 'claude'
   const armado = await procesarMensaje(duenioTelegram('/mail ana@negocio.com | Aviso | Cuerpo del mail'), vivo.estado, vivo.ctx)
   const hecho = await procesarMensaje(duenioTelegram('/si 1'), armado.estado, vivo.ctx)
-  assert.match(hecho.respuestas[0].texto, /ejecuté/)
+  assert.match(hecho.respuestas[0].texto, /no me confirmó/)
   const pedido = vivo.pedidos.at(-1)
   assert.equal(pedido.camino, 'duenio')
   assert.match(pedido.prompt, /ana@negocio.com/)

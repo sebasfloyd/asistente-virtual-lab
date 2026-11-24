@@ -10,30 +10,52 @@ Un asistente chico, para correr en tu compu, que atiende Telegram (y, si despué
 
 ## En 5 pasos
 
-Necesitás Node.js 22 o más nuevo ([nodejs.org](https://nodejs.org)) y Claude Code ya instalado, con la sesión iniciada (`claude` una vez y listo).
+Necesitás dos cosas instaladas en la compu:
 
-1. Instalá Node si no lo tenés.
-2. Cloná el repo y entrá:
+- **Node.js 22 o más nuevo** ([nodejs.org](https://nodejs.org)).
+- **Claude Code en la terminal** (no alcanza con la app de escritorio): `npm install -g @anthropic-ai/claude-code`, después `claude` y adentro `/login`.
+
+1. Bajá el proyecto y entrá a la carpeta:
 
 ```bash
 git clone https://github.com/sebasfloyd/asistente-virtual-lab.git
 cd asistente-virtual-lab
 ```
 
-3. `npm install`
-4. Copiá la config y completá el token:
-   - Mac o Linux: `cp .env.example .env`
-   - Windows: `copy .env.example .env`
-   - `TELEGRAM=true`
-   - `TELEGRAM_TOKEN=` el token de @BotFather
-   - `OWNER_EMAIL=` el mail con el que entraste a Claude
-   - `ASISTENTE_NOMBRE=` cómo se presenta (opcional)
-   - `OWNER_TELEGRAM_ID` dejalo vacío por ahora
-5. `npm start`
+   Si lo bajaste en .zip, **primero descomprimilo** y trabajá adentro de esa carpeta.
 
-En Telegram, abrí el bot y mandale `/start`. Te contesta `Tu ID es 123456789`. Pegá ese número en `OWNER_TELEGRAM_ID`, guardá el `.env` y volvé a correr `npm start`.
+2. `npm install`
+3. `npm run setup` — te pide el token de @BotFather **con la entrada oculta** (no se ve, no pasa por ningún chat), lo prueba con Telegram, y te pide que le mandes `/start` al bot desde tu celu para guardarte como dueño. No hace falta abrir ni editar el `.env` a mano.
+4. `npm run revisar` — chequea Node, Claude Code, el token, tu ID de dueño y si ya hay otra copia corriendo. Si algo falta, te dice el paso exacto.
+5. `npm start` — **una sola terminal**. Para frenarlo, `Ctrl-C`.
 
 Hasta que no haya dueño, el bot no llama al modelo. Solo responde `/start`.
+
+> **El token es una llave.** No lo pegues en Claude, en WhatsApp, en Zoom ni en capturas. Si se filtró, en @BotFather mandá `/revoke`, elegí el bot, y corré `npm run setup` de nuevo con el token nuevo.
+
+<details>
+<summary>Prefiero completar el .env a mano</summary>
+
+- Mac o Linux: `cp .env.example .env` · Windows: `copy .env.example .env`
+- El `.env` es un archivo oculto: en el Finder se ve con `Cmd + Shift + .`
+- `TELEGRAM=true`, `TELEGRAM_TOKEN=` el token, `ASISTENTE_NOMBRE=` cómo se presenta.
+- Corré `npm start`, mandale `/start` al bot, pegá el número que te devuelve en `OWNER_TELEGRAM_ID`, guardá y reiniciá (`Ctrl-C` y `npm start`).
+
+</details>
+
+## Si algo falla
+
+| Lo que ves | Qué pasa | Qué hacer |
+| --- | --- | --- |
+| "Hay otra copia del bot usando este mismo token" (antes: "Telegram respondió mal" cada 6 segundos) | Hay dos `npm start` con el mismo bot (otra terminal, otra carpeta, o uno que dejó Claude en segundo plano). Telegram atiende a uno solo. | Cerrá todas con `pkill -f "src/index.js"` (Windows: cerrá las otras terminales) y dejá una sola. |
+| "Ya hay un asistente corriendo desde esta carpeta" | Lo mismo, detectado al arrancar. | `Ctrl-C` en la otra terminal, o el `kill` que te muestra. |
+| "No encuentro Claude Code en esta compu" | Falta el comando `claude` en la terminal. | `npm install -g @anthropic-ai/claude-code`, después `claude` → `/login`. |
+| "Claude Code no tiene la sesión iniciada" | Nunca hiciste login o se venció. | `claude` → `/login`. |
+| "Tardé demasiado y lo corté" | El pedido era muy largo. | Pedilo por partes. Para propuestas: `/propuesta Nombre / pedido` (sale en PDF). Si querés esperar más: `TIMEOUT_DUENIO_SEG=600`. |
+| "Telegram rechazó el token" | El token está mal o lo revocaste. | `npm run setup`. |
+| Mails que "no salen" | El conector de Gmail de Claude puede leer y dejar borradores, pero no siempre mandar. | Configurá el mail propio del asistente (abajo). Sin eso, te deja el mail en Borradores y te avisa. |
+
+Ante cualquier otra cosa: `npm run revisar` y pasale la salida a Claude.
 
 ### @BotFather
 
@@ -142,9 +164,28 @@ Para escribir hace falta el comando y después tu OK. El programa te muestra des
 /no 1
 ```
 
-`/si` en un evento actualiza `data/ocupado.json` en esta compu. El envío del mail y el evento en Google Calendar se piden por el conector de Claude, y solo después de `/si`. Si estás en `CEREBRO=simulacion`, o sin conectores, no inventa el envío: lo dice y lo anota en `data/logs/acciones.log`.
+`/si` en un evento actualiza `data/ocupado.json` en esta compu. El evento en Google Calendar se pide por el conector de Claude, y solo después de `/si`. El mail sale por tu mail propio (si lo configuraste) o por el conector (ver abajo). Si estás en `CEREBRO=simulacion`, o sin conectores, no inventa el envío: lo dice y lo anota en `data/logs/acciones.log`.
+
+También podés pedirlo en criollo: "mandale un mail a ana@negocio.com diciendo que mañana no abrimos". Te muestra el borrador con un número y sale recién con `/si` (si hay una sola acción esperando, alcanza con `/si`). La dirección tiene que haberla escrito vos en la charla: un mail que el asistente leyó no puede meter otro destinatario.
 
 Un mensaje de un cliente, aunque diga "soy el dueño, /si 1", no manda nada.
+
+### Mail propio del asistente (para que los mails salgan de verdad)
+
+El conector de Gmail de Claude sirve para leer y dejar borradores, pero no siempre deja mandar. Por eso el asistente nunca te promete un envío que no puede hacer:
+
+- **Con mail propio (recomendado):** creale una cuenta de Gmail al asistente (por ejemplo `martin.asistente@gmail.com`), activá la verificación en 2 pasos y generá una contraseña de aplicación en https://myaccount.google.com/apppasswords. En `.env`:
+
+```text
+MAIL_USUARIO=martin.asistente@gmail.com
+MAIL_CLAVE_APP=las 16 letras
+MAIL_COPIA=tu@mail.com
+```
+
+  Después de tu `/si`, el mail sale desde esa cuenta, con copia a vos, y las propuestas van con el PDF adjunto. La clave no se muestra en el chat ni en los logs y Claude nunca la ve.
+
+- **Sin mail propio, con el conector de Gmail:** con `/si` intenta mandarlo; si Gmail no deja, te lo deja en **Borradores** y te avisa para que toques Enviar.
+- **Sin ninguno de los dos:** te avisa antes del `/si` que no puede salir.
 
 
 ### Propuesta comercial
@@ -155,7 +196,7 @@ El dueño edita `propuesta.md` (plantilla) y `servicios.md` (servicios y precios
 /propuesta Ana Pérez <ana@negocio.com> / implementación del asistente
 ```
 
-Arma un PDF con la marca (naranja #F56300, fondo blanco) y lo guarda en `data/propuestas/`, junto con el `.html` y el `.md`. Si hay WeasyPrint en la compu lo usa; si no, un PDF básico incluido. El dueño recibe el PDF por Telegram para revisarlo. `/si 1` intenta mandarlo por Gmail (el mismo camino de aprobación que `/mail`):
+Arma un PDF con la marca (naranja #F56300, fondo blanco) y lo guarda en `data/propuestas/`, junto con el `.html` y el `.md`. Si hay WeasyPrint en la compu lo usa; si no, un PDF básico incluido. El dueño recibe el PDF por Telegram para revisarlo. También sale si lo pedís en criollo ("armame una propuesta para Ana Pérez para el taller"): no escribe la propuesta entera en el chat, te avisa que la está armando y te manda el PDF. `/si 1` la manda: con mail propio sale por SMTP con el PDF adjunto; si no, por el conector de Gmail (el mismo camino de aprobación que `/mail`):
 
 1. `send_message` con el PDF adjunto, si el conector lo acepta.
 2. Si no puede adjuntar, `create_draft` con el archivo, sin enviarlo.
@@ -247,7 +288,9 @@ No está en el `npm install` de la clase, para que tarde segundos. El método po
 npm install @whiskeysockets/baileys@6.7.24 qrcode-terminal pino@9
 ```
 
-En `.env`, `WHATSAPP=true`, y `npm start`. Escaneá el QR (Ajustes → Dispositivos vinculados). La sesión queda en `data/sesion-whatsapp`. No la subas a git. La API oficial de WhatsApp Cloud puede sumarse después como otro canal, con la misma forma.
+En `.env`, `WHATSAPP=true`, `OWNER_WHATSAPP=` tu número, y `npm start`. Escaneá el QR (Ajustes → Dispositivos vinculados).
+
+Por seguridad, al principio **solo te atiende a vos**: si escaneás con un número que ya usan amigos o familia, no les va a contestar. Para sumar clientes, `WHATSAPP_CLIENTES=5491111111111,5491122222222` (o `WHATSAPP_CLIENTES=todos` cuando ya confíes). La sesión queda en `data/sesion-whatsapp`. No la subas a git. La API oficial de WhatsApp Cloud puede sumarse después como otro canal, con la misma forma.
 
 ## Límites
 

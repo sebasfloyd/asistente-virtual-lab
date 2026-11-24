@@ -1,8 +1,8 @@
 {
   "name": "ruptive-asistente",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Asistente local para estudiantes: Telegram y WhatsApp, con el due\u00f1o y los clientes en caminos separados.",
+  "description": "Asistente local para estudiantes: Telegram y WhatsApp, con el dueño y los clientes en caminos separados.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "engines": {
@@ -10,6 +10,8 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
+    "setup": "node src/setup.js",
+    "revisar": "node --env-file-if-exists=.env src/revisar.js",
     "simulador": "node --env-file-if-exists=.env src/simulador.js",
     "test": "node --test --test-reporter spec"
   },

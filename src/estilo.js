@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { esDocumento, normalizarMarkdown, partirPorParrafos } from './formato.js'
 
 export const ESTILO_DEFAULT = `# Estilo de escritura
 
@@ -10,8 +11,8 @@ export const ESTILO_DEFAULT = `# Estilo de escritura
 - Si no sabés, no inventes: dejame consultarlo y te aviso.
 `
 
-const FIRMA_LINEA = /^(?:[-–—]\s*.+|saludos(?:\s*,?\s+[\p{L}. ]+)?|un\s+abrazo(?:s)?|abrazos|atentamente|cordialmente|cordiales\s+saludos|qued[oa]\s+a\s+disposici[oó]n(?:\s+de\s+usted(?:es)?)?|cualquier\s+consulta(?:\s+no\s+dude(?:s|n)?)?)\s*[,.!]?\s*$/iu
-const CIERRE_FINAL = /(?:\n\s*)(?:[-–—]\s*.+|saludos(?:\s*,?\s+[\p{L}. ]+)?|un\s+abrazo(?:s)?|atentamente|qued[oa]\s+a\s+disposici[oó]n[^\n]*)\s*$/iu
+const FIRMA_LINEA = /^(?:[–—]\s*.+|-\s*[\p{Lu}][\p{L}.]*(?:\s+[\p{Lu}][\p{L}.]*){0,2}|saludos(?:\s*,?\s+[\p{L}. ]+)?|un\s+abrazo(?:s)?|abrazos|atentamente|cordialmente|cordiales\s+saludos|qued[oa]\s+a\s+disposici[oó]n(?:\s+de\s+usted(?:es)?)?|cualquier\s+consulta(?:\s+no\s+dude(?:s|n)?)?)\s*[,.!]?\s*$/iu
+const CIERRE_FINAL = /(?:\n\s*)(?:[–—]\s*.+|saludos(?:\s*,?\s+[\p{L}. ]+)?|un\s+abrazo(?:s)?|atentamente|qued[oa]\s+a\s+disposici[oó]n[^\n]*)\s*$/iu
 const APERTURA_FORMAL = /^\s*(?:estimado\/a|estimad[oa]s?|estimad[oa]|distinguido\/a|distinguido[s]?)\s+[^,\n]*,?\s*/iu
 const ABREV = /(?:sr|sra|srta|dr|dra|lic|ing|etc|vs|ej|p\.ej|hs|min|tel|pag|pág|nro|núm|num|av|avda)\.$/i
 const ITEM_LISTA = /^(?:[-*•]|(\d+[\.)]))\s+\S/
@@ -36,7 +37,12 @@ function escapar(valor) {
 export function sacarFirma(texto, nombre = '') {
   let out = String(texto || '').replace(/\s+$/g, '')
   const lineas = out.split(/\n/)
-  while (lineas.length > 1 && FIRMA_LINEA.test(lineas.at(-1).trim())) lineas.pop()
+  while (lineas.length > 1 && FIRMA_LINEA.test(lineas.at(-1).trim())) {
+    // Un ítem de lista al final no es una firma: "- tijera" después de "- algodón".
+    const previa = lineas.slice(0, -1).reverse().find((l) => l.trim())
+    if (/^-/.test(lineas.at(-1).trim()) && previa && ITEM_LISTA.test(previa.trim())) break
+    lineas.pop()
+  }
   out = lineas.join('\n')
   out = out.replace(CIERRE_FINAL, '')
   const limpio = String(nombre || '').trim()
@@ -47,7 +53,7 @@ export function sacarFirma(texto, nombre = '') {
     out = out.replace(reSaludo, '')
   }
   out = out.replace(APERTURA_FORMAL, '')
-  out = out.replace(/\s*[-–—]\s*[\p{L}][\p{L}0-9. ]{0,39}\s*$/u, '')
+  out = out.replace(/\s*[–—]\s*[\p{L}][\p{L}0-9. ]{0,39}\s*$/u, '')
   return out.replace(/[ \t]+\n/g, '\n').trim()
 }
 
@@ -113,8 +119,10 @@ export function partirMensajes(texto) {
 }
 
 export function partesParaEnviar(texto, { partir = true, nombre = '' } = {}) {
-  const limpio = limpiarEstilo(texto, { nombre })
+  const limpio = normalizarMarkdown(limpiarEstilo(texto, { nombre }))
   if (!limpio) return []
+  // Documentos (propuestas, tablas, listas largas) van enteros, partidos solo por largo.
+  if (esDocumento(limpio)) return partirPorParrafos(limpio, 3500)
   if (!partir) return [limpio]
   const partes = partirMensajes(limpio)
   return partes.length ? partes : [limpio]

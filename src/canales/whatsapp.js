@@ -1,8 +1,9 @@
-import { esJidIgnorado, textoDeWhatsapp } from './whatsapp-texto.js'
+import { atiendeWhatsapp, esJidIgnorado, textoDeWhatsapp } from './whatsapp-texto.js'
+import { aWhatsapp } from '../formato.js'
 
 export { esJidIgnorado, textoDeWhatsapp }
 
-export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {} }) {
+export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {}, clientes = '', duenio = '' }) {
   let baileys
   let qrcode
   let pino
@@ -24,7 +25,7 @@ export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {} }) {
     if (parado) return
     const { state, saveCreds } = await useMultiFileAuthState(dirSesion)
     const hacerLogger = pino.default ?? pino
-    const dibujarQr = qrcode.default?.generate ?? qrcode.generate
+    const qr = qrcode.default ?? qrcode
     sock = makeWASocket({
       auth: state,
       logger: hacerLogger({ level: 'silent' }),
@@ -35,7 +36,7 @@ export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {} }) {
     sock.ev.on('connection.update', (update) => {
       if (update.qr) {
         log('WhatsApp: escaneá el QR con un chip aparte (Ajustes → Dispositivos vinculados).')
-        dibujarQr(update.qr, { small: true })
+        qr.generate(update.qr, { small: true })
       }
       if (update.connection === 'open') {
         intento = 0
@@ -57,7 +58,7 @@ export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {} }) {
       if (evento.type !== 'notify') return
       for (const mensaje of evento.messages || []) {
         const entrada = textoDeWhatsapp(mensaje)
-        if (!entrada) continue
+        if (!entrada || !atiendeWhatsapp(mensaje, { clientes, duenio })) continue
         const id = mensaje.key?.id
         if (id && vistos.has(id)) continue
         if (id) vistos.add(id)
@@ -76,7 +77,7 @@ export async function crearWhatsapp({ dirSesion, onMensaje, log = () => {} }) {
     },
     async enviar(jid, texto) {
       if (!sock) throw new Error('WhatsApp no está conectado.')
-      await sock.sendMessage(jid, { text: texto })
+      await sock.sendMessage(jid, { text: aWhatsapp(texto) })
       await sock.sendPresenceUpdate('paused', jid).catch(() => {})
     },
     cerrar() {

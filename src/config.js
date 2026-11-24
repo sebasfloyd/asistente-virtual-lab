@@ -23,6 +23,7 @@ export function leerConfig(env = process.env) {
     ownerTelegramId: String(env.OWNER_TELEGRAM_ID || '').trim(),
     ownerWhatsapp: String(env.OWNER_WHATSAPP || '').replace(/\D/g, ''),
     ownerEmail: String(env.OWNER_EMAIL || '').trim(),
+    whatsappClientes: String(env.WHATSAPP_CLIENTES || '').trim(),
     codigoDuenio: String(env.CODIGO_DUENIO || ''),
     modo: env.MODO === 'auto' ? 'auto' : 'aprobar',
     cerebro,
@@ -53,6 +54,28 @@ export function leerConfig(env = process.env) {
     pausaEntreMensajesMs: entero(env.PAUSA_ENTRE_MENSAJES_MS, 700, 0, 8000),
     debounceMensajesMs: entero(env.DEBOUNCE_MENSAJES_MS, 2500, 0, 15000),
     agendaAuto: esVerdadero(env.AGENDA_AUTO),
+    // Segundos que se espera a Claude Code. El dueño pide cosas largas (propuestas, resúmenes).
+    timeoutDuenioSeg: entero(env.TIMEOUT_DUENIO_SEG, 300, 30, 1200),
+    timeoutClienteSeg: entero(env.TIMEOUT_CLIENTE_SEG, 120, 20, 600),
+    // Mail propio del asistente por SMTP (por ejemplo Gmail con contraseña de aplicación).
+    mail: leerMail(env),
+  }
+}
+
+function leerMail(env) {
+  const usuario = String(env.MAIL_USUARIO || '').trim()
+  const clave = String(env.MAIL_CLAVE_APP || '').replace(/\s+/g, '')
+  const servidor = String(env.MAIL_SMTP || 'smtp.gmail.com:465').trim()
+  const [host, puerto] = servidor.split(':')
+  const copia = String(env.MAIL_COPIA || '').trim()
+  return {
+    activo: Boolean(usuario && clave && host),
+    usuario,
+    clave,
+    host: host || 'smtp.gmail.com',
+    puerto: entero(puerto, 465, 1, 65535),
+    nombre: String(env.MAIL_NOMBRE || env.ASISTENTE_NOMBRE || '').trim().slice(0, 60),
+    copia: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(copia) ? copia : '',
   }
 }
 
@@ -72,7 +95,7 @@ function comandoMente(valor) {
 }
 
 export function secretosDe(config) {
-  return [config.telegramToken, config.codigoDuenio, config.anthropicKey, config.ownerEmail, config.ownerWhatsapp]
+  return [config.telegramToken, config.codigoDuenio, config.anthropicKey, config.ownerEmail, config.ownerWhatsapp, config.mail?.clave]
     .filter((s) => typeof s === 'string' && s.length >= 6)
 }
 

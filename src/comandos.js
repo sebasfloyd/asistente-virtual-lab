@@ -25,6 +25,7 @@ export function parsearComando(texto) {
   if ((m = t.match(/^\/si(?:@\w+)?\s+(\d+)\s+([^\s@]+@[^\s@]+\.[^\s@]+)\s*$/i))) return { tipo: 'si', id: Number(m[1]), para: m[2] }
   if ((m = t.match(/^\/si(?:@\w+)?\s+(\d+)\s*$/i))) return { tipo: 'si', id: Number(m[1]) }
   if ((m = t.match(/^\/no(?:@\w+)?\s+(\d+)\s*$/i))) return { tipo: 'no', id: Number(m[1]) }
+  if ((m = t.match(/^\/(si|sí|no)(?:@\w+)?\s*$/i))) return { tipo: m[1].toLowerCase() === 'no' ? 'no' : 'si' }
   if ((m = t.match(/^\/mail(?:@\w+)?\s+(\S+)\s*\|\s*([^|]+?)\s*\|\s*([\s\S]+)$/i))) {
     return { tipo: 'mail', para: m[1].trim(), asunto: m[2].trim(), cuerpo: m[3].trim() }
   }

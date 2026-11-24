@@ -192,3 +192,20 @@ export function guardarPropuesta({ dir, cliente, pedido, markdown, ahora = Date.
   })
   return { slug, markdown, ...render, pedido }
 }
+
+// "Armame una propuesta para Ana Pérez para el lab" → mismo camino que /propuesta:
+// sale un PDF y una acción con /si, en vez de un documento largo en el chat.
+export function pedidoPropuestaLibre(texto) {
+  const t = String(texto || '').trim()
+  if (!t || t.length > 400 || t.startsWith('/')) return null
+  const m = t.match(/\b(?:arm|hac|hag|prepar|redact|escrib|arm[aá])\w*\s+(?:me\s+|le\s+|nos\s+)?(?:una?\s+)?(?:nueva\s+)?propuesta(?:\s+comercial)?\s+(?:para|a)\s+([\s\S]+)$/i)
+  if (!m) return null
+  let resto = m[1].replace(/[?¿!¡.]+\s*$/, '').trim()
+  const mail = resto.match(/[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/)?.[0] || ''
+  resto = resto.replace(/<?[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>?/, ' ').replace(/\s+/g, ' ').trim()
+  const sep = resto.match(/^(.+?)\s+(?:para|por|sobre|acerca de)\s+(.+)$/i)
+  const cliente = (sep ? sep[1] : resto).replace(/[,;:]+$/, '').trim()
+  const pedido = (sep ? sep[2] : '').trim() || 'propuesta comercial'
+  if (!cliente || cliente.split(/\s+/).length > 6) return null
+  return { cliente, para: mail, pedido }
+}

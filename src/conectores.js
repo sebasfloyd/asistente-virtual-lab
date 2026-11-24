@@ -160,8 +160,25 @@ export function herramientasLectura(servidores = []) {
   return [...nombres]
 }
 
+// Para mandar un mail alcanza con enviar o dejar un borrador. Nada de borrar ni etiquetar.
+export const ESCRITURA_MAIL_ACCION = [
+  'mcp__claude_ai_Gmail__send_message',
+  'mcp__claude_ai_Gmail__create_draft',
+]
+
+export const DENEGAR_EN_ACCION_MAIL = [
+  'mcp__*trash*',
+  'mcp__*delete*',
+  'mcp__*spam*',
+  'mcp__*label*',
+  'mcp__*filter*',
+  'mcp__*forward*',
+  'mcp__*Calendar*',
+  'mcp__*Drive*',
+]
+
 export function herramientasEscritura(tipo) {
-  if (tipo === 'mail' || tipo === 'propuesta-mail') return [...ESCRITURA_GMAIL]
+  if (tipo === 'mail' || tipo === 'propuesta-mail') return [...ESCRITURA_MAIL_ACCION]
   if (tipo === 'agenda-crear' || tipo === 'agenda-mover' || tipo === 'agenda-invitar') return [...ESCRITURA_CALENDAR]
   return [...ESCRITURA_GMAIL, ...ESCRITURA_CALENDAR]
 }

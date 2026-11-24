@@ -1,4 +1,6 @@
+import path from 'node:path'
 import { crearAplicacion } from './app.js'
+import { soltarCandado, textoOtraCopia, tomarCandado } from './candado.js'
 import { crearTelegram } from './canales/telegram.js'
 import { crearWhatsapp } from './canales/whatsapp.js'
 import { leerConfig, revisarConfig } from './config.js'
@@ -23,8 +25,24 @@ if (!canalesActivos.length) {
   process.exit(0)
 }
 
-const app = await crearAplicacion({ canalesActivos })
+// Una sola copia por carpeta: si ya hay otra corriendo, avisamos y salimos.
+const candado = path.resolve(config.dirDatos, 'asistente.pid')
+const lock = tomarCandado(candado)
+if (!lock.ok) {
+  console.error(textoOtraCopia(lock.pid))
+  process.exit(1)
+}
+process.on('exit', () => soltarCandado(candado))
+
 const canales = {}
+
+function avisarYa(entrada, texto) {
+  const canal = canales[entrada.canal]
+  if (!canal) return
+  return enviarConEstilo({ canal, destino: entrada.responderId || entrada.senderId, texto, config })
+}
+
+const app = await crearAplicacion({ canalesActivos, avisarYa })
 
 async function entregar(respuestas) {
   for (const respuesta of respuestas) {
@@ -49,10 +67,25 @@ async function entregar(respuestas) {
   }
 }
 
+// Mientras Claude piensa, Telegram/WhatsApp muestran "escribiendo…" (dura ~5 s, lo renovamos).
+function mantenerEscribiendo(entrada) {
+  const canal = canales[entrada.canal]
+  if (!canal?.indicarEscribiendo) return () => {}
+  const destino = entrada.responderId || entrada.senderId
+  const tic = () => canal.indicarEscribiendo(destino).catch(() => {})
+  tic()
+  const timer = setInterval(tic, 4500)
+  return () => clearInterval(timer)
+}
+
 async function despachar(entrada) {
+  const parar = mantenerEscribiendo(entrada)
   try {
-    await entregar(await app.manejar(entrada))
+    const respuestas = await app.manejar(entrada)
+    parar()
+    await entregar(respuestas)
   } catch (error) {
+    parar()
     app.log.error('mensaje', { mensaje: error.message })
     const canal = canales[entrada.canal]
     if (canal) {
@@ -81,13 +114,20 @@ if (config.telegram) {
     token: config.telegramToken,
     onMensaje,
     log: (mensaje) => app.log.error('telegram', { mensaje }),
+    onError: (error) => {
+      if (error.conflicto) console.error(`\n>>> ${error.message}\n`)
+    },
   })
-  console.log('Telegram escuchando. Escribile /start al bot: te contesta "Tu ID es ...".')
+  console.log(config.ownerTelegramId
+    ? 'Telegram escuchando. Escribile al bot desde tu Telegram. Para frenarlo: Ctrl-C.'
+    : 'Telegram escuchando. Escribile /start al bot: te contesta "Tu ID es ...". (Más fácil: npm run setup)')
 }
 
 if (config.whatsapp) {
   const whatsapp = await crearWhatsapp({
     dirSesion: app.dirs.sesionWhatsapp,
+    clientes: config.whatsappClientes,
+    duenio: config.ownerWhatsapp,
     onMensaje,
     log: (mensaje) => console.log(mensaje),
   })
@@ -97,6 +137,9 @@ if (config.whatsapp) {
     if (!config.telegram) process.exit(1)
   } else {
     canales.whatsapp = whatsapp
+    console.log(config.whatsappClientes
+      ? `WhatsApp: atiendo al dueño y a ${config.whatsappClientes === 'todos' ? 'cualquiera que escriba' : 'los números de WHATSAPP_CLIENTES'}.`
+      : 'WhatsApp: por ahora solo te atiendo a vos (OWNER_WHATSAPP). Para clientes, completá WHATSAPP_CLIENTES en .env.')
   }
 }
 

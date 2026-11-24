@@ -5,6 +5,7 @@ import path from 'node:path'
 import { filtrarSalidaCliente } from './filtro.js'
 import { MARCA_CLIENTE, MARCA_FIN_CLIENTE, SISTEMA_CLIENTE, SISTEMA_DUENIO } from './prompt.js'
 import {
+  DENEGAR_EN_ACCION_MAIL,
   GLOBS_DENEGAR_ESCRITURA,
   herramientasEscritura,
   herramientasLectura,
@@ -24,7 +25,7 @@ const CLAVES_ENTORNO_CLIENTE = [
   'CLAUDE_CODE_DISABLE_CLAUDE_MDS', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY',
 ]
 
-const SECRETOS_APP = ['TELEGRAM_TOKEN', 'ANTHROPIC_API_KEY', 'CODIGO_DUENIO', 'OWNER_TELEGRAM_ID', 'OWNER_WHATSAPP', 'OWNER_EMAIL']
+const SECRETOS_APP = ['TELEGRAM_TOKEN', 'ANTHROPIC_API_KEY', 'CODIGO_DUENIO', 'OWNER_TELEGRAM_ID', 'OWNER_WHATSAPP', 'OWNER_EMAIL', 'MAIL_CLAVE_APP', 'MAIL_USUARIO']
 
 export function prepararEntorno(dirs) {
   if (path.resolve(dirs.sandbox) === path.resolve(dirs.raiz)) {
@@ -182,6 +183,7 @@ export function armarInvocacionAccion({ dirs, env, tipo } = {}) {
     '--append-system-prompt-file', dirs.sistemaDuenio,
   ]
   pushTools(args, '--allowedTools', herramientasEscritura(tipo))
+  if (tipo === 'mail' || tipo === 'propuesta-mail') pushTools(args, '--disallowedTools', DENEGAR_EN_ACCION_MAIL)
   return {
     comando: 'claude',
     args,
@@ -276,6 +278,33 @@ export function afirmarInvocacionSegura(pedido) {
   throw new Error('Camino desconocido.')
 }
 
+export class ErrorCerebro extends Error {
+  constructor(mensaje, tipo = 'otro') {
+    super(mensaje)
+    this.tipo = tipo
+  }
+}
+
+const SIN_SESION = /not logged in|please run \/login|run `?claude`? (?:and )?\/?login|invalid api key|authentication[_ ]error|oauth token (?:has )?expired|credit balance is too low/i
+const LIMITE = /usage limit|limit reached|rate[_ ]limit|too many requests|overloaded/i
+
+export function tipoDeFalla(texto) {
+  const t = String(texto || '')
+  if (SIN_SESION.test(t)) return 'sin-sesion'
+  if (LIMITE.test(t)) return 'limite'
+  return 'otro'
+}
+
+// Lo que ve el dueño cuando Claude Code falla. En criollo y con el paso a seguir.
+export function textoErrorCerebro(error) {
+  const tipo = error?.tipo || ''
+  if (tipo === 'timeout') return 'Tardé demasiado y lo corté. Si era algo largo, pedilo por partes, o para propuestas usá /propuesta (te la mando en PDF).'
+  if (tipo === 'sin-claude') return 'No encuentro Claude Code en esta compu (el comando claude). Instalalo con  npm install -g @anthropic-ai/claude-code  y después corré  claude  una vez para iniciar sesión. Con  npm run revisar  te digo qué falta.'
+  if (tipo === 'sin-sesion') return 'Claude Code no tiene la sesión iniciada. En la terminal corré  claude  y escribí /login. Después volvé a escribirme.'
+  if (tipo === 'limite') return 'Claude llegó al límite de uso de tu plan por ahora. Probá de nuevo en un rato.'
+  return 'Claude Code falló con este pedido. Probá de nuevo; si sigue, corré  npm run revisar  y mirá data/logs/asistente.log.'
+}
+
 export function extraerResultado(stdout) {
   const texto = String(stdout || '').trim()
   if (!texto) throw new Error('Claude Code no devolvió texto.')
@@ -287,7 +316,7 @@ export function extraerResultado(stdout) {
     if (inicio === -1) throw new Error('Claude Code no devolvió JSON.')
     json = JSON.parse(texto.slice(inicio + 1))
   }
-  if (json.is_error) throw new Error('Claude Code marcó error.')
+  if (json.is_error) throw new ErrorCerebro('Claude Code marcó error.', tipoDeFalla(json.result))
   if (typeof json.result !== 'string' || !json.result.trim()) throw new Error('Claude Code no devolvió texto.')
   return json.result.trim()
 }
@@ -331,13 +360,14 @@ export async function ejecutarClaude(pedido, opciones = {}) {
     }
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      cerrar(() => reject(new Error('Claude Code tardó demasiado.')))
+      cerrar(() => reject(new ErrorCerebro(`Claude Code tardó más de ${Math.round(timeoutMs / 1000)} s.`, 'timeout')))
     }, timeoutMs)
     child.on('error', (error) => {
-      const mensaje = error?.code === 'ENOENT'
+      const sinClaude = error?.code === 'ENOENT'
+      const mensaje = sinClaude
         ? 'No encontré el comando claude. Instalá Claude Code e iniciá sesión.'
         : 'No pude iniciar Claude Code.'
-      cerrar(() => reject(new Error(mensaje)))
+      cerrar(() => reject(new ErrorCerebro(mensaje, sinClaude ? 'sin-claude' : 'otro')))
     })
     child.stdout?.on('data', (buf) => {
       stdout += buf.toString('utf8')
@@ -354,16 +384,18 @@ export async function ejecutarClaude(pedido, opciones = {}) {
       cerrar(() => {
         if (code !== 0) {
           opciones.onStderr?.(stderr)
-          reject(new Error(pedido.camino === 'cliente'
+          const tipo = tipoDeFalla(`${stdout}\n${stderr}`)
+          reject(new ErrorCerebro(pedido.camino === 'cliente'
             ? 'Claude Code no pudo responder en el camino cliente.'
-            : 'Claude Code no pudo responder en el camino del dueño.'))
+            : 'Claude Code no pudo responder en el camino del dueño.', tipo))
           return
         }
         try {
-          resolve(extraerResultado(stdout).slice(0, 3500))
-        } catch {
+          resolve(extraerResultado(stdout).slice(0, pedido.camino === 'cliente' ? 3500 : 12000))
+        } catch (error) {
           opciones.onStderr?.(stderr)
-          reject(new Error('Claude Code contestó en un formato que no entiendo.'))
+          if (error instanceof ErrorCerebro) reject(error)
+          else reject(new ErrorCerebro('Claude Code contestó en un formato que no entiendo.', tipoDeFalla(`${stdout}\n${stderr}`)))
         }
       })
     })
@@ -425,7 +457,12 @@ export function crearCerebro(config, extras = {}) {
     ? cerebroSimulacion
     : config.cerebro === 'anthropic'
       ? (pedido) => ejecutarAnthropic(pedido, config, extras.fetchFn)
-      : (pedido) => ejecutarClaude(pedido, extras)
+      : (pedido) => ejecutarClaude(pedido, {
+        ...extras,
+        timeoutMs: extras.timeoutMs || 1000 * (pedido.camino === 'cliente'
+          ? (config.timeoutClienteSeg || 120)
+          : (config.timeoutDuenioSeg || 300)),
+      })
   return async (pedido) => {
     const texto = await base(pedido)
     if (pedido.camino !== 'cliente') return limpiarTextoDuenio(texto)

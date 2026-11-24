@@ -1,10 +1,10 @@
-import { anexarAccion, encolarAccion, promptDeAccion, textoConfirmacion } from './acciones.js'
+import { anexarAccion, encolarAccion, promptDeAccion, textoConfirmacion, viaMail } from './acciones.js'
 import { TEXTO_AYUDA_DUENIO, parsearComando } from './comandos.js'
 import { TEXTO_DRIVE_FALTANTE, driveConectado, parecePedidoDrive } from './conectores.js'
 import { parsearHorarios, parecePedidoHorarios, promptDeHorarios, parsearSlotsCerebro, proponerTresHuecos, textoSlots } from './horarios.js'
 import { parsearPedidoEnvio, parecePedidoEnvio, pideTelegram, textoPedirCuerpo, textoPedirDestino, textoWhatsappApagado } from './envio-tercero.js'
 import { TOPE_HISTORIAL_DUENIO } from './prompt.js'
-import { guardarPropuesta, leerPlantillas, noInventarPrecios, parsearPropuesta, promptDePropuesta, propuestaDeSimulacion } from './propuesta.js'
+import { guardarPropuesta, leerPlantillas, noInventarPrecios, parsearPropuesta, pedidoPropuestaLibre, promptDePropuesta, propuestaDeSimulacion } from './propuesta.js'
 import {
   TEXTO_COLA_LLENA,
   TEXTO_ERROR,
@@ -15,10 +15,13 @@ import {
   decidirEntrega,
   formatearAviso,
 } from './aprobacion.js'
-import { armarInvocacion, armarInvocacionAccion } from './cerebro.js'
+import fs from 'node:fs'
+import { armarInvocacion, armarInvocacionAccion, textoErrorCerebro } from './cerebro.js'
+import { ErrorMail, enviarMail } from './correo.js'
 import { secretosDe } from './config.js'
 import { filtrarSalidaCliente } from './filtro.js'
 import { calcularHuecos, esPreguntaDeHuecos, interpretarDia, intervaloHorario, textoHuecos, textoOcupados } from './huecos.js'
+import { extraerMail } from './mail-charla.js'
 import { tomarCupo } from './limite.js'
 import { anotarEjemplo, aprender, listarMemoria, olvidar } from './memoria.js'
 import { limpiarEstilo } from './estilo.js'
@@ -29,6 +32,8 @@ import { PROMPT_MAILS } from './resumen.js'
 import { caminoDe, codigosIguales, esDuenio, hayDuenio, jidDe, registroHabilitado } from './seguridad.js'
 
 const TOPE_PENDIENTES = 30
+
+export const TEXTO_COMO_MANDAR_MAILS = 'Para que los mails salgan solos, poné MAIL_USUARIO y MAIL_CLAVE_APP en el .env (está explicado en el README).'
 
 function al(entrada, texto, audiencia, ctx) {
   return {
@@ -122,7 +127,7 @@ async function pedirCerebro(ctx, { camino, mensaje, reglas, historial }) {
   })
   const invocacion = armarInvocacion({ camino, dirs: ctx.dirs, env: ctx.env || process.env, config: ctx.config })
   const salida = await ctx.cerebro({ camino, prompt, invocacion, mensaje, reglas })
-  return limpiarEstilo(String(salida || '').slice(0, 3500), { nombre: ctx.config.nombre })
+  return limpiarEstilo(String(salida || '').slice(0, camino === 'cliente' ? 3500 : 12000), { nombre: ctx.config.nombre })
 }
 
 export function avisosDuenio(estado, config, canalesActivos, texto) {
@@ -236,7 +241,16 @@ async function ejecutarComando(entrada, estado, ctx, comando, respuestas) {
   if (comando.tipo === 'recordar' || comando.tipo === 'programar' || comando.tipo === 'tareas' || comando.tipo === 'borrar') {
     return relojComando(entrada, estado, ctx, comando, respuestas)
   }
-  if (comando.tipo === 'si' || comando.tipo === 'no') return resolverAccion(entrada, estado, ctx, comando, respuestas)
+  if (comando.tipo === 'si' || comando.tipo === 'no') {
+    const desde = respuestas.length
+    const resultado = await resolverAccion(entrada, estado, ctx, comando, respuestas)
+    // Queda en la charla, para que "lo mandaste?" se conteste con lo que pasó de verdad.
+    const clave = `duenio:${entrada.canal}:${entrada.senderId}`
+    const avisos = respuestas.slice(desde).filter((r) => r.audiencia === 'duenio').map((r) => r.texto)
+    recordar(estado, clave, { rol: 'cliente', texto: entrada.texto, cuando: ctx.ahora() })
+    recordar(estado, clave, { rol: 'asistente', texto: avisos.join('\n'), cuando: ctx.ahora() })
+    return resultado
+  }
   if (comando.tipo === 'seguimientos') return seguimientos(entrada, estado, ctx, respuestas)
   if (comando.tipo === 'mails') return pedirMails(entrada, estado, ctx, respuestas)
   if (comando.tipo === 'propuesta') return armarPropuesta(entrada, estado, ctx, comando, respuestas)
@@ -400,7 +414,7 @@ function proponerAccion(entrada, estado, ctx, comando, respuestas) {
   }
   const { tipo, ...resto } = comando
   const accion = encolarAccion(estado, { tipo, ...resto })
-  respuestas.push(al(entrada, textoConfirmacion(accion), 'duenio'))
+  respuestas.push(al(entrada, textoConfirmacion(accion, { via: viaMail(ctx.config), config: ctx.config }), 'duenio'))
   return { estado, respuestas }
 }
 
@@ -421,6 +435,18 @@ async function aplicarAgendaLocal(accion, ctx) {
 }
 
 async function resolverAccion(entrada, estado, ctx, comando, respuestas) {
+  if (comando.id == null) {
+    if (!estado.acciones.length) {
+      respuestas.push(al(entrada, 'No hay ninguna acción esperando. No salió nada.', 'duenio'))
+      return { estado, respuestas }
+    }
+    if (estado.acciones.length > 1) {
+      const lista = estado.acciones.map((a) => `#${a.id} ${a.tipo} ${a.para || a.destino || a.titulo || ''}`.trim()).join('\n')
+      respuestas.push(al(entrada, `Hay más de una esperando, decime cuál con /${comando.tipo} y el número:\n${lista}`, 'duenio'))
+      return { estado, respuestas }
+    }
+    comando = { ...comando, id: estado.acciones[0].id }
+  }
   const accion = estado.acciones.find((item) => item.id === comando.id)
   if (!accion) {
     respuestas.push(al(entrada, `No hay una acción #${comando.id}.`, 'duenio'))
@@ -490,8 +516,37 @@ async function resolverAccion(entrada, estado, ctx, comando, respuestas) {
       return { estado, respuestas }
     }
   }
-  const conConector = ctx.config.cerebro === 'claude' && ctx.config.ownerConectores && (accion.tipo === 'mail' || accion.tipo === 'propuesta-mail' || accion.tipo.startsWith('agenda'))
-  if (conConector) {
+  const esMailAccion = accion.tipo === 'mail' || accion.tipo === 'propuesta-mail'
+  // resultadoMail: 'enviado' | 'borrador' | 'dudoso' | 'simulado'
+  let resultadoMail = ''
+  let copia = ''
+  if (esMailAccion && ctx.config.mail?.activo) {
+    const enviar = ctx.enviarMail || enviarMail
+    const adjuntos = accion.tipo === 'propuesta-mail' && accion.adjunto && fs.existsSync(accion.adjunto)
+      ? [{ ruta: accion.adjunto, tipo: accion.adjunto.endsWith('.pdf') ? 'application/pdf' : 'text/html' }]
+      : []
+    try {
+      const r = await enviar(ctx.config.mail, {
+        para: accion.para,
+        cc: ctx.config.mail.copia,
+        asunto: accion.asunto,
+        cuerpo: accion.cuerpo,
+        adjuntos,
+      })
+      copia = r?.cc || ''
+      resultadoMail = 'enviado'
+      detalle = `enviado por SMTP desde ${ctx.config.mail.usuario}${adjuntos.length ? ' con adjunto' : ''}`
+    } catch (error) {
+      ctx.log?.error('mail_smtp', { mensaje: error.message })
+      const motivo = error instanceof ErrorMail ? error.message : 'No pude conectarme con el servidor de mail.'
+      respuestas.push(al(entrada, `El mail #${accion.id} no salió. ${motivo} Sigue pendiente: /si ${accion.id} para reintentar o /no ${accion.id} para cancelar.`, 'duenio'))
+      return { estado, respuestas }
+    }
+  }
+  const conConector = !resultadoMail && ctx.config.cerebro === 'claude' && ctx.config.ownerConectores && (esMailAccion || accion.tipo.startsWith('agenda'))
+  if (resultadoMail) {
+    // ya salió por SMTP
+  } else if (conConector) {
     try {
       const invocacion = armarInvocacionAccion({ dirs: ctx.dirs, env: ctx.env || process.env, tipo: accion.tipo })
       const prompt = promptDeAccion(accion)
@@ -505,15 +560,26 @@ async function resolverAccion(entrada, estado, ctx, comando, respuestas) {
     } catch (error) {
       ctx.log?.error('accion', { mensaje: error.message })
       if (!accion.tipo.startsWith('agenda')) {
-        respuestas.push(al(entrada, `No pude ejecutar la acción #${accion.id}. Sigue pendiente.`, 'duenio'))
+        respuestas.push(al(entrada, `No pude ejecutar la acción #${accion.id}: ${textoErrorCerebro(error)} Sigue pendiente.`, 'duenio'))
         return { estado, respuestas }
       }
       detalle = 'La agenda local quedó actualizada. El conector no respondió.'
       simulado = true
     }
-  } else if (accion.tipo === 'mail' || accion.tipo === 'propuesta-mail') {
+    if (esMailAccion) {
+      const d = String(detalle || '')
+      if (/NO_ENVIADO/.test(d)) {
+        ctx.log?.error('mail_no_enviado', { detalle: d.slice(0, 300) })
+        const motivo = d.replace(/[\s\S]*NO_ENVIADO[:.\s-]*/, '').trim().slice(0, 300)
+        respuestas.push(al(entrada, `El mail #${accion.id} no salió. ${motivo} ${TEXTO_COMO_MANDAR_MAILS} Sigue pendiente.`, 'duenio'))
+        return { estado, respuestas }
+      }
+      resultadoMail = /\bBORRADOR\b/.test(d) ? 'borrador' : /\bENVIADO\b/.test(d) ? 'enviado' : 'dudoso'
+    }
+  } else if (esMailAccion) {
     simulado = true
-    detalle = 'confirmada sin conector: CEREBRO no es claude o OWNER_CONECTORES está apagado'
+    resultadoMail = 'simulado'
+    detalle = 'confirmada sin conector ni SMTP: no salió'
   } else {
     simulado = true
     detalle = 'agenda local actualizada; no hay conector en esta corrida'
@@ -528,13 +594,19 @@ async function resolverAccion(entrada, estado, ctx, comando, respuestas) {
     simulado,
     detalle: String(detalle || '').slice(0, 500),
   }, secretosDe(ctx.config))
-  let aviso = accion.tipo === 'mail' && simulado
-    ? `Confirmaste la acción #${accion.id}. En esta corrida no hay un conector de Gmail: no mandé el mail. Quedó en el registro.`
-    : accion.tipo === 'propuesta-mail' && simulado
-      ? `Confirmaste la acción #${accion.id}. En esta corrida no hay un conector de Gmail: no mandé el mail. El PDF quedó en ${accion.adjunto || 'data/propuestas/'}. Quedó en el registro.`
-    : accion.tipo.startsWith('agenda') && simulado
-      ? `Confirmaste la acción #${accion.id}. Actualicé la agenda local. El conector de Google Calendar no se usó en esta corrida.`
-      : `Listo, ejecuté la acción #${accion.id}.`
+  const conCopia = copia ? `, con copia a ${copia}` : ''
+  const archivo = accion.tipo === 'propuesta-mail' ? ` El PDF quedó en ${accion.adjunto || 'data/propuestas/'}.` : ''
+  let aviso = resultadoMail === 'enviado'
+    ? `Listo, mandé el mail a ${accion.para}${conCopia} (acción #${accion.id}).`
+    : resultadoMail === 'borrador'
+      ? `Gmail no me deja mandar desde acá, así que te dejé el mail para ${accion.para} en Borradores de tu Gmail. Abrilo y tocá Enviar.${archivo} ${TEXTO_COMO_MANDAR_MAILS}`
+      : resultadoMail === 'dudoso'
+        ? `Gmail no me confirmó la acción #${accion.id}. Mirá Enviados y Borradores antes de pedirla de nuevo.`
+        : resultadoMail === 'simulado'
+          ? `No mandé el mail #${accion.id}: no tengo cómo mandar mails en esta compu.${archivo} ${TEXTO_COMO_MANDAR_MAILS}`
+          : accion.tipo.startsWith('agenda') && simulado
+            ? `Confirmaste la acción #${accion.id}. Actualicé la agenda local. El conector de Google Calendar no se usó en esta corrida.`
+            : `Listo, ejecuté la acción #${accion.id}.`
   if (accion.tipo === 'propuesta-mail') {
     const rec = encolarAccion(estado, {
       tipo: 'recordatorio-propuesta',
@@ -626,6 +698,7 @@ async function armarPropuesta(entrada, estado, ctx, comando, respuestas) {
   }
   const { plantilla, servicios } = leerPlantillas(ctx.dirs.raiz)
   const fecha = fechaLocal(ctx)
+  await ctx.avisarYa?.(entrada, `Dale, armo la propuesta para ${parsed.cliente}. Te la paso en PDF en un par de minutos.`)
   let markdown = ''
   if (ctx.config.cerebro === 'claude' && ctx.config.ownerConectores !== false) {
     try {
@@ -688,6 +761,10 @@ async function armarPropuesta(entrada, estado, ctx, comando, respuestas) {
     archivo: guardado.ruta,
     epigrafe: `Propuesta para ${parsed.cliente}`,
   })
+  // Queda en la charla, así "me la mandás?" sabe de qué propuesta y qué acción es.
+  const clave = `duenio:${entrada.canal}:${entrada.senderId}`
+  recordar(estado, clave, { rol: 'cliente', texto: comando.original || `/propuesta ${comando.texto}`, cuando: ctx.ahora() })
+  recordar(estado, clave, { rol: 'asistente', texto: `${texto} (Acción #${accion.id}, PDF: ${guardado.ruta.split('/').pop()})`, cuando: ctx.ahora() })
   return { estado, respuestas }
 }
 
@@ -800,6 +877,11 @@ async function hablarDuenio(entrada, estado, ctx, texto, respuestas) {
   if (pedidoHorarios) return ofrecerHorarios(entrada, estado, ctx, pedidoHorarios, respuestas)
   const envio = manejarEnvioTercero(entrada, estado, ctx, texto, respuestas)
   if (envio) return envio
+  const propuestaLibre = pedidoPropuestaLibre(texto)
+  if (propuestaLibre) {
+    const cliente = propuestaLibre.para ? `${propuestaLibre.cliente} <${propuestaLibre.para}>` : propuestaLibre.cliente
+    return armarPropuesta(entrada, estado, ctx, { tipo: 'propuesta', texto: `${cliente} / ${propuestaLibre.pedido}`, original: texto }, respuestas)
+  }
   if (parecePedidoDrive(texto)) {
     const servidores = ctx.config.conectoresDetectados || []
     if (servidores.length && !driveConectado(servidores)) {
@@ -815,12 +897,26 @@ async function hablarDuenio(entrada, estado, ctx, texto, respuestas) {
       reglas: ctx.reglasTexto,
       historial: (estado.historial[clave] || []).slice(-TOPE_HISTORIAL_DUENIO),
     })
+    const propuesto = extraerMail(salida, { mensaje: texto, historial: estado.historial[clave] || [] })
+    const partes = [propuesto.texto]
+    if (propuesto.mail) {
+      const cuerpo = limpiarEstilo(propuesto.mail.cuerpo, { nombre: ctx.config.nombre })
+      // Una corrección reemplaza el borrador anterior al mismo destinatario.
+      estado.acciones = estado.acciones.filter((a) => !(a.tipo === 'mail' && a.charla && a.para === propuesto.mail.para))
+      if (estado.acciones.length >= 30) partes.push('Hay demasiadas acciones esperando. Cancelá alguna con /no.')
+      else partes.push(textoConfirmacion(encolarAccion(estado, { tipo: 'mail', ...propuesto.mail, cuerpo, charla: true }), { via: viaMail(ctx.config), config: ctx.config }))
+    } else if (propuesto.error === 'destino') {
+      partes.push('No armé el mail: esa dirección no la escribiste vos en esta charla. Pasámela y lo preparo.')
+    } else if (propuesto.error) {
+      partes.push('No pude armar el borrador del mail. Pedímelo de nuevo.')
+    }
+    const final = partes.filter(Boolean).join('\n\n')
     recordar(estado, clave, { rol: 'cliente', texto, cuando: ctx.ahora() })
-    recordar(estado, clave, { rol: 'asistente', texto: salida, cuando: ctx.ahora() })
-    respuestas.push(al(entrada, salida || 'No me salió ninguna respuesta.', 'duenio'))
+    recordar(estado, clave, { rol: 'asistente', texto: final, cuando: ctx.ahora() })
+    respuestas.push(al(entrada, final || 'No me salió ninguna respuesta.', 'duenio'))
   } catch (error) {
     ctx.log?.error('cerebro_duenio', { mensaje: error.message })
-    respuestas.push(al(entrada, 'No pude usar el cerebro en tu camino. Casi siempre es que falta Claude Code o no iniciaste sesión.', 'duenio'))
+    respuestas.push(al(entrada, textoErrorCerebro(error), 'duenio'))
   }
   return { estado, respuestas }
 }
@@ -861,7 +957,7 @@ async function hablarCliente(entrada, estado, ctx, texto, respuestas) {
     } catch (error) {
       ctx.log?.error('cerebro_cliente', { mensaje: error.message })
       respuestas.push(paraCliente(entrada, TEXTO_ERROR, ctx))
-      avisarDuenio(respuestas, estado, ctx, 'Falló el cerebro con un cliente. Revisá que `claude` esté instalado y que hayas iniciado sesión.')
+      avisarDuenio(respuestas, estado, ctx, `Falló el cerebro con un cliente. ${textoErrorCerebro(error)}`)
       return { estado, respuestas }
     }
   }

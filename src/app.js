@@ -15,7 +15,7 @@ import { tomarAvisos } from './reloj.js'
 import { PROMPT_MAILS, textoResumen, tocaResumen } from './resumen.js'
 import { avisosDuenio, procesarMensaje } from './turno.js'
 
-export async function crearAplicacion({ canalesActivos, env = process.env, raiz = process.cwd(), duenioSimulador = '', cerebro } = {}) {
+export async function crearAplicacion({ canalesActivos, env = process.env, raiz = process.cwd(), duenioSimulador = '', cerebro, avisarYa } = {}) {
   const base = { ...leerConfig(env), duenioSimulador }
   const config = {
     ...base,
@@ -53,6 +53,8 @@ export async function crearAplicacion({ canalesActivos, env = process.env, raiz 
       leerMemoria: () => leerMemoria(memoriaRuta),
       guardarMemoria: (texto) => escribirMemoria(memoriaRuta, texto),
       leerEstilo: () => leerEstilo(path.isAbsolute(config.estiloPath) ? config.estiloPath : path.join(raiz, config.estiloPath)),
+      // Aviso inmediato ("dale, lo armo") mientras sigue el trabajo largo.
+      avisarYa: avisarYa ? (entrada, texto) => Promise.resolve(avisarYa(entrada, texto)).catch(() => {}) : undefined,
     }
   }
 

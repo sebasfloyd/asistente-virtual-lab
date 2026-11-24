@@ -2,10 +2,30 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { redactar } from './log.js'
 
-export function textoConfirmacion(accion) {
+// Cómo va a salir un mail, para no prometer un envío que no se puede hacer.
+export function viaMail(config = {}) {
+  if (config.mail?.activo) return 'smtp'
+  if (config.cerebro === 'claude' && config.ownerConectores !== false) return 'conector'
+  return 'ninguna'
+}
+
+function pieMail(accion, via, config = {}) {
+  const cancelar = `/no ${accion.id} para cancelar.`
+  if (via === 'smtp') {
+    const copia = config.mail?.copia ? ` con copia a ${config.mail.copia}` : ''
+    return `\n\n/si ${accion.id} y lo mando desde ${config.mail.usuario}${copia}. ${cancelar}`
+  }
+  if (via === 'conector') {
+    return `\n\n/si ${accion.id} y lo intento mandar con tu Gmail. Si Gmail no me deja mandar, te lo dejo en Borradores y te aviso. ${cancelar}`
+  }
+  return `\n\nOjo: no tengo cómo mandar mails (falta MAIL_USUARIO y MAIL_CLAVE_APP, o el conector de Gmail). Con /si ${accion.id} solo queda anotado. ${cancelar}`
+}
+
+export function textoConfirmacion(accion, { via = '', config = {} } = {}) {
   const pie = `\n\n/si ${accion.id} para hacerlo, /no ${accion.id} para cancelar.`
   if (accion.tipo === 'mail') {
-    return `Acción #${accion.id}: mandar un mail\nPara: ${accion.para}\nAsunto: ${accion.asunto}\nTexto:\n${accion.cuerpo}${pie}`
+    const fin = via ? pieMail(accion, via, config) : pie
+    return `Acción #${accion.id}: mandar un mail\nPara: ${accion.para}\nAsunto: ${accion.asunto}\nTexto:\n${accion.cuerpo}${fin}`
   }
   if (accion.tipo === 'telegram') {
     return `Acción #${accion.id}: mandar un Telegram\nChat: ${accion.destino}\nTexto:\n${accion.texto}${pie}`
@@ -49,6 +69,11 @@ export function promptDeAccion(accion) {
       `Asunto: ${accion.asunto}`,
       'Cuerpo:',
       accion.cuerpo,
+      '--- FIN DEL CUERPO ---',
+      'Usá send_message con ese cuerpo exacto, sin la línea FIN DEL CUERPO. Intentalo una sola vez.',
+      'Si send_message no existe o no está disponible, creá un borrador con create_draft con los mismos datos y no lo envíes.',
+      'Respondé solo una palabra: ENVIADO si Gmail confirmó el envío, BORRADOR si quedó como borrador.',
+      'Si no pudiste ninguna de las dos, respondé NO_ENVIADO y el motivo en una oración.',
     ].join('\n')
   }
   if (accion.tipo === 'propuesta-mail') {
@@ -60,6 +85,7 @@ export function promptDeAccion(accion) {
       'Intentá mandar el mail con el PDF adjunto (send_message).',
       'Si esa herramienta no acepta adjuntos, creá un borrador con create_draft y el mismo archivo, y no lo envíes.',
       'Si tampoco podés adjuntar, dejá el mail o el borrador sin archivo y decí claro que el PDF quedó en esa ruta y no se pudo adjuntar.',
+      'Empezá tu respuesta con ENVIADO, BORRADOR o NO_ENVIADO según lo que pasó de verdad.',
       'No inventes otro destinatario. No borres mails.',
       'Cuerpo:',
       accion.cuerpo,
