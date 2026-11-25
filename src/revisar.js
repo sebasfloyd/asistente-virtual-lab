@@ -59,13 +59,30 @@ async function main() {
     else falla('Falta OWNER_TELEGRAM_ID (tu ID de dueño)', 'npm run setup  te lo toma solo cuando le mandás /start al bot')
   }
 
-  if (config.whatsapp) {
+  if (config.whatsapp && config.whatsappModo === 'api') {
+    const api = config.whatsappApi
+    if (!api.activo) falla('WHATSAPP_MODO=api pero faltan WHATSAPP_API_TOKEN o WHATSAPP_API_PHONE_ID', 'npm run setup')
+    else {
+      try {
+        const { crearClienteApi } = await import('./canales/whatsapp-api.js')
+        const info = await crearClienteApi(api).info()
+        bien(`WhatsApp API oficial OK: ${info.display_phone_number || '?'}${info.verified_name ? ` (${info.verified_name})` : ''}`)
+      } catch (e) {
+        falla(`WhatsApp API: ${e.message}`, 'Revisá el token y el phone number id en Meta, y corré npm run setup')
+      }
+    }
+    if (!api.verifyToken) falla('Falta WHATSAPP_API_VERIFY_TOKEN (la clave que Meta usa para verificar tu webhook)', 'npm run setup  te genera una')
+    if (!api.appSecret) ojo('Sin WHATSAPP_API_APP_SECRET no puedo comprobar que los mensajes vengan de Meta. Recomendado.')
+    ojo(`El webhook escucha en http://localhost:${api.puerto}/webhook. Meta necesita una URL https pública: cloudflared tunnel --url http://localhost:${api.puerto}`)
+    if (!config.ownerWhatsapp) falla('Falta OWNER_WHATSAPP (tu número, con código de país)', 'npm run setup')
+  } else if (config.whatsapp) {
     const tiene = fs.existsSync(path.join(raiz, 'node_modules', '@whiskeysockets', 'baileys'))
-    if (tiene) bien('WhatsApp instalado')
+    if (tiene) bien('WhatsApp por QR instalado')
     else falla('WHATSAPP=true pero falta instalarlo', 'npm install @whiskeysockets/baileys@6.7.24 qrcode-terminal pino@9')
+    ojo('WhatsApp por QR no es oficial: usá un chip aparte, Meta puede bloquear el número.')
     if (!config.ownerWhatsapp) falla('Falta OWNER_WHATSAPP (tu número, con código de país)', 'Completalo en .env')
-    if (!config.whatsappClientes) ojo('WhatsApp solo te va a atender a vos. Para clientes: WHATSAPP_CLIENTES=5491111111111,5491122222222 (o todos)')
   }
+  if (config.whatsapp && !config.whatsappClientes) ojo('WhatsApp solo te va a atender a vos. Para clientes: WHATSAPP_CLIENTES=5491111111111,5491122222222 (o todos)')
 
   const pidRuta = path.resolve(raiz, config.dirDatos, 'asistente.pid')
   const pid = fs.existsSync(pidRuta) ? Number(fs.readFileSync(pidRuta, 'utf8').trim()) : 0

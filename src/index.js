@@ -3,6 +3,7 @@ import { crearAplicacion } from './app.js'
 import { soltarCandado, textoOtraCopia, tomarCandado } from './candado.js'
 import { crearTelegram } from './canales/telegram.js'
 import { crearWhatsapp } from './canales/whatsapp.js'
+import { crearWhatsappApi } from './canales/whatsapp-api.js'
 import { leerConfig, revisarConfig } from './config.js'
 import { enviarConEstilo } from './envio.js'
 import { crearRebote } from './rebote.js'
@@ -11,6 +12,10 @@ const config = leerConfig()
 const problemas = revisarConfig(config)
 if (config.telegram && !config.telegramToken) {
   console.error(problemas[0])
+  process.exit(1)
+}
+if (config.whatsapp && config.whatsappModo === 'api' && !config.whatsappApi.activo) {
+  console.error(problemas.find((linea) => linea.includes('WHATSAPP_MODO')))
   process.exit(1)
 }
 if (config.cerebro === 'anthropic' && !config.anthropicKey) {
@@ -123,7 +128,18 @@ if (config.telegram) {
     : 'Telegram escuchando. Escribile /start al bot: te contesta "Tu ID es ...". (Más fácil: npm run setup)')
 }
 
-if (config.whatsapp) {
+if (config.whatsapp && config.whatsappModo === 'api') {
+  canales.whatsapp = await crearWhatsappApi({
+    api: config.whatsappApi,
+    clientes: config.whatsappClientes,
+    duenio: config.ownerWhatsapp,
+    onMensaje,
+    log: (mensaje) => console.log(mensaje),
+  })
+  console.log(config.whatsappClientes
+    ? 'WhatsApp API oficial: atiendo al dueño y a los clientes de WHATSAPP_CLIENTES.'
+    : 'WhatsApp API oficial: por ahora solo te atiendo a vos (OWNER_WHATSAPP). Para clientes, completá WHATSAPP_CLIENTES en .env.')
+} else if (config.whatsapp) {
   const whatsapp = await crearWhatsapp({
     dirSesion: app.dirs.sesionWhatsapp,
     clientes: config.whatsappClientes,
@@ -137,6 +153,7 @@ if (config.whatsapp) {
     if (!config.telegram) process.exit(1)
   } else {
     canales.whatsapp = whatsapp
+    console.log('WhatsApp por QR no es oficial: usá un chip aparte, Meta puede bloquear el número.')
     console.log(config.whatsappClientes
       ? `WhatsApp: atiendo al dueño y a ${config.whatsappClientes === 'todos' ? 'cualquiera que escriba' : 'los números de WHATSAPP_CLIENTES'}.`
       : 'WhatsApp: por ahora solo te atiendo a vos (OWNER_WHATSAPP). Para clientes, completá WHATSAPP_CLIENTES en .env.')

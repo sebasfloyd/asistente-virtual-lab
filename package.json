@@ -1,6 +1,6 @@
 {
   "name": "ruptive-asistente",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Asistente local para estudiantes: Telegram y WhatsApp, con el dueño y los clientes en caminos separados.",
   "type": "module",

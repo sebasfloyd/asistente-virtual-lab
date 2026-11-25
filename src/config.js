@@ -19,6 +19,9 @@ export function leerConfig(env = process.env) {
   return {
     telegram: esVerdadero(env.TELEGRAM),
     whatsapp: esVerdadero(env.WHATSAPP),
+    // qr: WhatsApp Web con QR (no oficial). api: WhatsApp API oficial de Meta (Cloud API).
+    whatsappModo: String(env.WHATSAPP_MODO || '').trim().toLowerCase() === 'api' ? 'api' : 'qr',
+    whatsappApi: leerWhatsappApi(env),
     telegramToken: String(env.TELEGRAM_TOKEN || '').trim(),
     ownerTelegramId: String(env.OWNER_TELEGRAM_ID || '').trim(),
     ownerWhatsapp: String(env.OWNER_WHATSAPP || '').replace(/\D/g, ''),
@@ -62,6 +65,22 @@ export function leerConfig(env = process.env) {
   }
 }
 
+function leerWhatsappApi(env) {
+  const token = String(env.WHATSAPP_API_TOKEN || '').trim()
+  const phoneId = String(env.WHATSAPP_API_PHONE_ID || '').replace(/\D/g, '')
+  return {
+    activo: Boolean(token && phoneId),
+    token,
+    phoneId,
+    verifyToken: String(env.WHATSAPP_API_VERIFY_TOKEN || '').trim(),
+    appSecret: String(env.WHATSAPP_API_APP_SECRET || '').trim(),
+    puerto: entero(env.WHATSAPP_API_PUERTO, 8787, 1, 65535),
+    version: /^v\d+\.\d+$/.test(String(env.WHATSAPP_API_VERSION || '').trim()) ? env.WHATSAPP_API_VERSION.trim() : 'v21.0',
+    plantilla: String(env.WHATSAPP_API_PLANTILLA || '').trim(),
+    idioma: String(env.WHATSAPP_API_IDIOMA || 'es_AR').trim(),
+  }
+}
+
 function leerMail(env) {
   const usuario = String(env.MAIL_USUARIO || '').trim()
   const clave = String(env.MAIL_CLAVE_APP || '').replace(/\s+/g, '')
@@ -95,13 +114,17 @@ function comandoMente(valor) {
 }
 
 export function secretosDe(config) {
-  return [config.telegramToken, config.codigoDuenio, config.anthropicKey, config.ownerEmail, config.ownerWhatsapp, config.mail?.clave]
+  return [config.telegramToken, config.codigoDuenio, config.anthropicKey, config.ownerEmail, config.ownerWhatsapp, config.mail?.clave,
+    config.whatsappApi?.token, config.whatsappApi?.appSecret, config.whatsappApi?.verifyToken]
     .filter((s) => typeof s === 'string' && s.length >= 6)
 }
 
 export function revisarConfig(config) {
   const problemas = []
   if (config.telegram && !config.telegramToken) problemas.push('TELEGRAM=true pero falta TELEGRAM_TOKEN en .env.')
+  if (config.whatsapp && config.whatsappModo === 'api' && !config.whatsappApi?.activo) {
+    problemas.push('WHATSAPP_MODO=api pero faltan WHATSAPP_API_TOKEN o WHATSAPP_API_PHONE_ID. Corré npm run setup.')
+  }
   if (config.cerebro === 'anthropic' && !config.anthropicKey) problemas.push('CEREBRO=anthropic pero falta ANTHROPIC_API_KEY.')
   if (!config.telegram && !config.whatsapp) {
     problemas.push('No hay canales activos. Para practicar: npm run simulador. Para salir en serio, poné TELEGRAM=true o WHATSAPP=true.')

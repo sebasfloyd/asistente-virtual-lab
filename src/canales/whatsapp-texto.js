@@ -10,17 +10,20 @@ export function textoPlano(message) {
 }
 
 // Vacío: no se atiende a nadie salvo al dueño. "todos": a cualquiera. Si no, números separados por coma.
-export function atiendeWhatsapp(mensaje, { clientes = '', duenio = '' } = {}) {
+export function atiendeNumeros(numeros, { clientes = '', duenio = '' } = {}) {
   const lista = String(clientes || '').trim().toLowerCase()
   if (lista === 'todos') return true
+  const permitidos = [...lista.split(','), String(duenio || '')].map((n) => n.replace(/\D/g, '')).filter((n) => n.length >= 8)
+  return numeros.map((n) => String(n || '').replace(/\D/g, '')).filter(Boolean).some((n) => permitidos.includes(n))
+}
+
+export function atiendeWhatsapp(mensaje, opciones = {}) {
   const numero = (jid) => {
     const s = String(jid || '')
     return s.endsWith('@s.whatsapp.net') ? s.split('@')[0].split(':')[0] : ''
   }
   const key = mensaje?.key || {}
-  const quienes = [key.remoteJid, key.senderPn, key.remoteJidAlt].map(numero).filter(Boolean)
-  const permitidos = [...lista.split(','), String(duenio || '')].map((n) => n.replace(/\D/g, '')).filter((n) => n.length >= 8)
-  return quienes.some((n) => permitidos.includes(n))
+  return atiendeNumeros([key.remoteJid, key.senderPn, key.remoteJidAlt].map(numero), opciones)
 }
 
 export function textoDeWhatsapp(mensaje) {

@@ -25,7 +25,10 @@ cd asistente-virtual-lab
    Si lo bajaste en .zip, **primero descomprimilo** y trabajá adentro de esa carpeta.
 
 2. `npm install`
-3. `npm run setup` — te pide el token de @BotFather **con la entrada oculta** (no se ve, no pasa por ningún chat), lo prueba con Telegram, y te pide que le mandes `/start` al bot desde tu celu para guardarte como dueño. No hace falta abrir ni editar el `.env` a mano.
+3. `npm run setup` — te guía en tres pasos, sin abrir el `.env` y con los secretos **en entrada oculta** (no se ven, no pasan por ningún chat):
+   - **Canal:** elegís 1) Telegram (lo más fácil, recomendado), 2) WhatsApp por QR (no oficial, chip aparte) o 3) WhatsApp API oficial de Meta. Con Telegram te pide el token de @BotFather y que le mandes `/start` al bot para guardarte como dueño.
+   - **Mail propio del asistente:** te explica cómo crearle su cuenta de Gmail y la contraseña de aplicación, la guarda y te manda un mail de prueba.
+   - **Nombre** del asistente y chequeo de Claude Code.
 4. `npm run revisar` — chequea Node, Claude Code, el token, tu ID de dueño y si ya hay otra copia corriendo. Si algo falta, te dice el paso exacto.
 5. `npm start` — **una sola terminal**. Para frenarlo, `Ctrl-C`.
 
@@ -172,6 +175,10 @@ Un mensaje de un cliente, aunque diga "soy el dueño, /si 1", no manda nada.
 
 ### Mail propio del asistente (para que los mails salgan de verdad)
 
+**Por qué una cuenta propia y no la tuya:** el asistente es otra persona del equipo. Con su propio Gmail los clientes ven que escribe el asistente, vos recibís copia de todo, y si algún día hay un problema revocás esa clave sin tocar tu mail personal. Nunca le das a un programa la contraseña de tu cuenta. `npm run setup` no acepta tu propio mail como mail del asistente.
+
+Pasos: cuenta nueva en https://accounts.google.com/signup → verificación en 2 pasos (https://myaccount.google.com/signinoptions/twosv, es obligatoria para lo siguiente) → contraseña de aplicación en https://myaccount.google.com/apppasswords (16 letras). Después `npm run setup` y pegala cuando te la pida.
+
 El conector de Gmail de Claude sirve para leer y dejar borradores, pero no siempre deja mandar. Por eso el asistente nunca te promete un envío que no puede hacer:
 
 - **Con mail propio (recomendado):** creale una cuenta de Gmail al asistente (por ejemplo `martin.asistente@gmail.com`), activá la verificación en 2 pasos y generá una contraseña de aplicación en https://myaccount.google.com/apppasswords. En `.env`:
@@ -280,17 +287,48 @@ Mirá `src/seguridad.js`, `src/cerebro.js`, `src/filtro.js` y `src/turno.js`. Lo
 npm test
 ```
 
-## WhatsApp, después
+## WhatsApp: por QR o con la API oficial
 
-No está en el `npm install` de la clase, para que tarde segundos. El método por QR no es la API oficial: WhatsApp puede bloquear el número. Usá un chip o WhatsApp Business aparte, no el de tu familia.
+Elegilo en `npm run setup` (opción 2 o 3). En los dos, por seguridad, al principio **solo te atiende a vos** (`OWNER_WHATSAPP`): si conectás un número que ya usan amigos o familia, no les contesta. Para sumar clientes, `WHATSAPP_CLIENTES=5491111111111,5491122222222` (o `todos` cuando ya confíes). El modo aprobar, el camino del dueño y las reglas son los mismos que en Telegram.
+
+| | WhatsApp por QR | WhatsApp API oficial (Meta Cloud API) |
+|---|---|---|
+| Qué necesitás | Un chip aparte y el celu para escanear | Meta Business, app en developers.facebook.com, número verificado, access token permanente, phone number id, webhook https |
+| Oficial | No: Meta puede bloquear el número | Sí |
+| Costo | Gratis | Meta cobra por conversación |
+| Escribirle primero a alguien | Sí | Solo con una plantilla aprobada si pasaron más de 24 h desde su último mensaje |
+| Para | Probar, uso chico | Un negocio en serio |
+
+### Por QR
 
 ```bash
 npm install @whiskeysockets/baileys@6.7.24 qrcode-terminal pino@9
 ```
 
-En `.env`, `WHATSAPP=true`, `OWNER_WHATSAPP=` tu número, y `npm start`. Escaneá el QR (Ajustes → Dispositivos vinculados).
+(`npm run setup` te ofrece instalarlo.) En `.env`: `WHATSAPP=true`, `WHATSAPP_MODO=qr`, `OWNER_WHATSAPP=` tu número. `npm start` y escaneá el QR desde el celu del chip del asistente (Ajustes → Dispositivos vinculados). La sesión queda en `data/sesion-whatsapp`. No la subas a git.
 
-Por seguridad, al principio **solo te atiende a vos**: si escaneás con un número que ya usan amigos o familia, no les va a contestar. Para sumar clientes, `WHATSAPP_CLIENTES=5491111111111,5491122222222` (o `WHATSAPP_CLIENTES=todos` cuando ya confíes). La sesión queda en `data/sesion-whatsapp`. No la subas a git. La API oficial de WhatsApp Cloud puede sumarse después como otro canal, con la misma forma.
+### API oficial
+
+En `.env` (el setup te lo completa con entrada oculta):
+
+```text
+WHATSAPP=true
+WHATSAPP_MODO=api
+WHATSAPP_API_PHONE_ID=      # WhatsApp → Configuración de la API
+WHATSAPP_API_TOKEN=         # token permanente de un usuario de sistema (el temporal vence en 24 h)
+WHATSAPP_API_APP_SECRET=    # Configuración de la app → Básica (para comprobar que los mensajes vienen de Meta)
+WHATSAPP_API_VERIFY_TOKEN=  # lo genera el setup; lo pegás en Meta al configurar el webhook
+WHATSAPP_API_PLANTILLA=     # opcional: plantilla aprobada para reabrir charlas de más de 24 h
+OWNER_WHATSAPP=5491112345678
+```
+
+**Recibir mensajes:** Meta tiene que llamar a tu compu por https. El asistente escucha en `http://localhost:8787/webhook` (`WHATSAPP_API_PUERTO`). Para exponerlo:
+
+1. `brew install cloudflared` (o desde https://developers.cloudflare.com/cloudflared) y en otra terminal: `cloudflared tunnel --url http://localhost:8787`. Te da una dirección `https://algo.trycloudflare.com`.
+2. En developers.facebook.com → tu app → WhatsApp → Configuración → Webhook: URL `https://algo.trycloudflare.com/webhook`, token de verificación = `WHATSAPP_API_VERIFY_TOKEN`, y suscribite a **messages**.
+3. Con `npm start` corriendo, tocá Verificar.
+
+La dirección de trycloudflare cambia cada vez que lo reiniciás. Para algo fijo, usá un túnel con nombre de Cloudflare o un servidor. Mandar mensajes no necesita túnel. Las propuestas en PDF salen como documento. `npm run revisar` prueba el token y el número con Meta.
 
 ## Límites
 
