@@ -132,12 +132,12 @@ test('setup: elegir canal', () => {
 })
 
 test('setup: el mail del asistente es propio, nunca el del dueño', () => {
-  assert.match(problemaMailAsistente('seba@gmail.com', 'Seba@gmail.com'), /cuenta propia/)
-  assert.equal(problemaMailAsistente('martin.asistente@gmail.com', 'seba@gmail.com'), '')
+  assert.match(problemaMailAsistente('dueno@ejemplo.com', 'Dueno@ejemplo.com'), /cuenta propia/)
+  assert.equal(problemaMailAsistente('martin.asistente@gmail.com', 'dueno@ejemplo.com'), '')
   assert.match(problemaMailAsistente('nada', ''), /no parece/)
   assert.equal(claveAppValida('abcd efgh ijkl mnop'), true)
   assert.equal(claveAppValida('MiClave123'), false)
-  assert.deepEqual(cambiosMail({ usuario: 'martin.asistente@gmail.com', clave: 'abcd efgh ijkl mnop', mailDuenio: 'seba@gmail.com' }), {
-    MAIL_USUARIO: 'martin.asistente@gmail.com', MAIL_CLAVE_APP: 'abcdefghijklmnop', MAIL_SMTP: 'smtp.gmail.com:465', MAIL_COPIA: 'seba@gmail.com',
+  assert.deepEqual(cambiosMail({ usuario: 'martin.asistente@gmail.com', clave: 'abcd efgh ijkl mnop', mailDuenio: 'dueno@ejemplo.com' }), {
+    MAIL_USUARIO: 'martin.asistente@gmail.com', MAIL_CLAVE_APP: 'abcdefghijklmnop', MAIL_SMTP: 'smtp.gmail.com:465', MAIL_COPIA: 'dueno@ejemplo.com',
   })
 })
